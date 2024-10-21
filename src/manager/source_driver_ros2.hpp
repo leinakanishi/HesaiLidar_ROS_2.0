@@ -38,6 +38,7 @@
 #include <hesai_ros_driver/msg/ptp.hpp>
 #include <hesai_ros_driver/msg/firetime.hpp>
 #include <hesai_ros_driver/msg/loss_packet.hpp>
+#include <rclcpp/clock.hpp>
 
 #include <fstream>
 #include <memory>
@@ -247,7 +248,7 @@ inline sensor_msgs::msg::PointCloud2 SourceDriver::ToRosMsg(const LidarDecodedFr
   offset = addPointField(ros_msg, "z", 1, sensor_msgs::msg::PointField::FLOAT32, offset);
   offset = addPointField(ros_msg, "intensity", 1, sensor_msgs::msg::PointField::FLOAT32, offset);
   offset = addPointField(ros_msg, "ring", 1, sensor_msgs::msg::PointField::UINT16, offset);
-  offset = addPointField(ros_msg, "timestamp", 1, sensor_msgs::msg::PointField::FLOAT64, offset);
+  offset = addPointField(ros_msg, "time", 1, sensor_msgs::msg::PointField::FLOAT64, offset);
 
   ros_msg.point_step = offset;
   ros_msg.row_step = ros_msg.width * ros_msg.point_step;
@@ -259,16 +260,25 @@ inline sensor_msgs::msg::PointCloud2 SourceDriver::ToRosMsg(const LidarDecodedFr
   sensor_msgs::PointCloud2Iterator<float> iter_z_(ros_msg, "z");
   sensor_msgs::PointCloud2Iterator<float> iter_intensity_(ros_msg, "intensity");
   sensor_msgs::PointCloud2Iterator<uint16_t> iter_ring_(ros_msg, "ring");
-  sensor_msgs::PointCloud2Iterator<double> iter_timestamp_(ros_msg, "timestamp");
+  sensor_msgs::PointCloud2Iterator<double> iter_timestamp_(ros_msg, "time");
+
+  // https://github.com/HesaiTechnology/HesaiLidar_ROS_2.0/issues/1
+  rclcpp::Clock clock(RCL_ROS_TIME);
+  rclcpp::Time current_time = clock.now();
+  ros_msg.header.stamp = current_time;
+  int64_t nanoseconds = current_time.nanoseconds();
+  double timestamp_seconds = static_cast<double>(nanoseconds) * 1e-9;
+
   for (size_t i = 0; i < frame.points_num; i++)
   {
+    frame.points[i].time=timestamp_seconds;
     LidarPointXYZIRT point = frame.points[i];
     *iter_x_ = point.x;
     *iter_y_ = point.y;
     *iter_z_ = point.z;
     *iter_intensity_ = point.intensity;
     *iter_ring_ = point.ring;
-    *iter_timestamp_ = point.timestamp;
+    *iter_timestamp_ = point.time;
     ++iter_x_;
     ++iter_y_;
     ++iter_z_;
@@ -277,10 +287,10 @@ inline sensor_msgs::msg::PointCloud2 SourceDriver::ToRosMsg(const LidarDecodedFr
     ++iter_timestamp_;   
   }
   // printf("HesaiLidar Runing Status [standby mode:%u]  |  [speed:%u]\n", frame.work_mode, frame.spin_speed);
-  printf("frame:%d points:%u packet:%d start time:%lf end time:%lf\n",frame.frame_index, frame.points_num, frame.packet_num, frame.points[0].timestamp, frame.points[frame.points_num - 1].timestamp) ;
+  printf("frame:%d points:%u packet:%d start time:%lf end time:%lf\n",frame.frame_index, frame.points_num, frame.packet_num, frame.points[0].time, frame.points[frame.points_num - 1].time) ;
   std::cout.flush();
-  ros_msg.header.stamp.sec = (uint32_t)floor(frame.points[0].timestamp);
-  ros_msg.header.stamp.nanosec = (uint32_t)round((frame.points[0].timestamp - ros_msg.header.stamp.sec) * 1e9);
+  ros_msg.header.stamp.sec = (uint32_t)floor(frame.points[0].time);
+  ros_msg.header.stamp.nanosec = (uint32_t)round((frame.points[0].time - ros_msg.header.stamp.sec) * 1e9);
   ros_msg.header.frame_id = frame_id_;
   return ros_msg;
 }
